@@ -18,6 +18,18 @@ Open http://127.0.0.1:3000. On first start you create the Admin account yourself
 passwords. The Admin then creates Employee, Accounts and Customer logins (each gets a one-time
 temporary password they must change at first login).
 
+## Free demo deployment (Render)
+
+The repository includes `render.yaml` for a free Render web service. In Render, choose **New > Blueprint**
+and connect this GitHub repository. The service runs in demo mode, so OTP codes are displayed on screen.
+Before first-time setup, copy the generated `HS_SETUP_TOKEN` from the service's environment settings into
+the setup form. The token prevents a random visitor from claiming the initial Admin account.
+
+This is only a disposable preview: Render's free web service has an ephemeral filesystem, may sleep when
+idle, and can lose its SQLite database and uploaded files on restart, spin-down, or redeploy. Do not enter
+real customer, identity, banking, or loan data. Real use needs paid durable storage, operational backups,
+live SMS, and a separate production security review.
+
 To let phones on the same Wi-Fi use it: `HOST=0.0.0.0 npm run demo`, then open `http://<computer-ip>:3000`.
 Over a network use HTTPS (put it behind a reverse proxy) and set `HS_SECURE_COOKIE=1`.
 

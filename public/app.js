@@ -56,10 +56,11 @@ async function loginScreen() {
 }
 function setupScreen(status) {
   const err = h('div', { class: 'banner bad', hidden: true });
-  const f = { name: h('input', { id: 'n', required: true }), username: h('input', { id: 'un', required: true, autocapitalize: 'none' }), mobile: h('input', { id: 'm', inputmode: 'numeric' }), password: h('input', { id: 'pw', type: 'password', required: true, autocomplete: 'new-password' }) };
+  const f = { name: h('input', { id: 'n', required: true }), username: h('input', { id: 'un', required: true, autocapitalize: 'none' }), mobile: h('input', { id: 'm', inputmode: 'numeric' }), password: h('input', { id: 'pw', type: 'password', required: true, autocomplete: 'new-password' }), setupToken: h('input', { id: 'setup-token', type: 'password', required: status.setupTokenRequired, autocomplete: 'off' }) };
   const form = h('form', { class: 'card', onsubmit: async e => { e.preventDefault(); err.hidden = true;
-    try { await POST('/api/setup', { name: f.name.value, username: f.username.value, mobile: f.mobile.value, password: f.password.value }); await boot(); } catch (x) { err.hidden = false; err.textContent = x.message; } } },
+    try { await POST('/api/setup', { name: f.name.value, username: f.username.value, mobile: f.mobile.value, password: f.password.value, setupToken: f.setupToken.value }); await boot(); } catch (x) { err.hidden = false; err.textContent = x.message; } } },
     h('h1', {}, 'First-time setup'), h('p', { class: 'muted' }, 'Create the Admin account. There are no built-in passwords; this is the only way an Admin is created.'), err,
+    status.setupTokenRequired && field('Setup token', f.setupToken, { hint: 'Find HS_SETUP_TOKEN in your hosting service’s environment settings.' }),
     field('Full name', f.name), field('Username', f.username, { hint: 'letters, numbers, . _ -' }), field('Mobile (optional)', f.mobile), field('Password', f.password, { hint: 'at least 8 characters with letters and numbers' }),
     h('button', { class: 'primary', type: 'submit' }, 'Create Admin account'));
   mount(root, authShell(form));

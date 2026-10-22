@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: loan-demo
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: NODE_ENV
+        value: production
+      - key: DEMO_MODE
+        value: "1"
+      - key: HS_SECURE_COOKIE
+        value: "1"
+      - key: HS_SETUP_TOKEN
+        generateValue: true
+      - key: HS_ENC_KEY
+        generateValue: true
