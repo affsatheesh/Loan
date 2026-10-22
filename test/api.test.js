@@ -26,8 +26,13 @@ let appId, loanId, productId;
 test('setup, login, role protection, config', async () => {
   assert.equal((await api('x', 'GET', '/api/setup-status')).data.needsSetup, true);
   assert.equal((await api('x', 'GET', '/api/applications')).status, 401);
-  assert.equal((await api('admin', 'POST', '/api/setup', { name: 'Owner', username: 'owner', password: 'short' })).status, 400);
-  await ok('admin', 'POST', '/api/setup', { name: 'Owner', username: 'owner', password: 'Owner12345' });
+  process.env.NODE_ENV = 'production'; process.env.HS_SETUP_TOKEN = 'deployment-test-token';
+  assert.equal((await api('x', 'GET', '/api/setup-status')).data.setupTokenRequired, true);
+  assert.equal((await api('admin', 'POST', '/api/setup', { name: 'Owner', username: 'owner', password: 'Owner12345' })).status, 403, 'production setup requires token');
+  assert.equal((await api('admin', 'POST', '/api/setup', { name: 'Owner', username: 'owner', password: 'Owner12345', setupToken: 'wrong' })).status, 403, 'wrong setup token refused');
+  assert.equal((await api('admin', 'POST', '/api/setup', { name: 'Owner', username: 'owner', password: 'short', setupToken: 'deployment-test-token' })).status, 400);
+  await ok('admin', 'POST', '/api/setup', { name: 'Owner', username: 'owner', password: 'Owner12345', setupToken: 'deployment-test-token' });
+  delete process.env.NODE_ENV; delete process.env.HS_SETUP_TOKEN;
   assert.equal((await api('x', 'POST', '/api/setup', { name: 'B', username: 'bad', password: 'Owner12345' })).status, 403, 'setup only once');
   assert.equal((await api('admin', 'POST', '/api/logout', {}, { 'x-requested-with': '' })).status, 403, 'CSRF header required');
   await makeUser('EMPLOYEE', 'emp1'); await makeUser('EMPLOYEE', 'emp2'); await makeUser('ACCOUNTS', 'acc1');

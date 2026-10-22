@@ -10,10 +10,15 @@ const str = (v, max = 300) => String(v ?? '').trim().slice(0, max);
 const int = v => (Number.isInteger(v) ? v : (typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : null));
 
 // ================= Auth =================
-route('GET', '/api/setup-status', { public: true }, () => ({ needsSetup: q.get('SELECT COUNT(*) c FROM users').c === 0, demoMode: sms.isDemo() }));
+route('GET', '/api/setup-status', { public: true }, () => ({ needsSetup: q.get('SELECT COUNT(*) c FROM users').c === 0, demoMode: sms.isDemo(), setupTokenRequired: process.env.NODE_ENV === 'production' }));
 
 route('POST', '/api/setup', { public: true }, ({ body, res }) => {
   if (q.get('SELECT COUNT(*) c FROM users').c > 0) throw forbidden('Setup is already complete.');
+  if (process.env.NODE_ENV === 'production') {
+    const expected = Buffer.from(process.env.HS_SETUP_TOKEN || '');
+    const supplied = Buffer.from(str(body.setupToken, 512));
+    if (!expected.length || expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) throw forbidden('Enter the setup token configured by the host.');
+  }
   const name = str(body.name), username = str(body.username).toLowerCase(), pw = body.password;
   if (!name || !/^[a-z0-9._-]{3,30}$/.test(username)) throw bad('Enter a name and a username (3-30 letters/numbers).');
   const weak = H.checkPasswordStrength(pw); if (weak) throw bad(weak);
