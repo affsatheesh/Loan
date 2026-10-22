@@ -28,49 +28,56 @@ function checkPasswordStrength(pw) {
   return null;
 }
 const sha = t => crypto.createHash('sha256').update(t).digest('hex');
-function createSession(userId) {
+async function createSession(userId) {
   const token = crypto.randomBytes(32).toString('hex');
-  q.run('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)', sha(token), userId, Date.now() + SESSION_MS);
+  await q.run('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)', sha(token), userId, Date.now() + SESSION_MS);
   return token;
 }
 function parseCookies(h) {
   const o = {}; for (const part of (h || '').split(';')) { const i = part.indexOf('='); if (i > 0) o[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); } return o;
 }
-function userFromReq(req) {
+async function userFromReq(req) {
   const t = parseCookies(req.headers.cookie).hs_session; if (!t) return null;
-  const s = q.get('SELECT * FROM sessions WHERE token_hash=?', sha(t));
+  const s = await q.get('SELECT * FROM sessions WHERE token_hash=?', sha(t));
   if (!s) return null;
-  if (s.expires_at < Date.now()) { q.run('DELETE FROM sessions WHERE token_hash=?', s.token_hash); return null; }
-  const u = q.get('SELECT * FROM users WHERE id=?', s.user_id);
+  if (s.expires_at < Date.now()) { await q.run('DELETE FROM sessions WHERE token_hash=?', s.token_hash); return null; }
+  const u = await q.get('SELECT * FROM users WHERE id=?', s.user_id);
   if (!u || u.status !== 'ACTIVE') return null; // deactivated users lose access immediately
   req.sessionHash = s.token_hash; return u;
 }
-function destroySession(req) { if (req.sessionHash) q.run('DELETE FROM sessions WHERE token_hash=?', req.sessionHash); }
+async function destroySession(req) { if (req.sessionHash) await q.run('DELETE FROM sessions WHERE token_hash=?', req.sessionHash); }
 function publicUser(u) {
   return { id: u.id, code: u.code, username: u.username, name: u.name, role: u.role, mobile: u.mobile, email: u.email,
     status: u.status, mustChange: !!u.must_change, customerId: u.customer_id };
 }
 
 // ---------- file storage (random ids; never user-supplied names) ----------
-const fs = require('node:fs'); const path = require('node:path'); const { DATA_DIR } = require('./db');
+// Netlify Blobs on Netlify; a plain folder when HS_FILES_DIR is set (tests and offline runs).
+const fs = require('node:fs'); const path = require('node:path');
 const ALLOWED = { 'image/jpeg': [[0xFF, 0xD8, 0xFF]], 'image/png': [[0x89, 0x50, 0x4E, 0x47]], 'application/pdf': [[0x25, 0x50, 0x44, 0x46]],
   'image/webp': [[0x52, 0x49, 0x46, 0x46]] };
-const MAX_FILE = 8 * 1024 * 1024;
-function saveFile(dataUrlOrB64, mime) {
+const MAX_FILE = 4 * 1024 * 1024; // Netlify Functions accept request bodies up to 6 MB; base64 adds a third
+const fileStore = () => require('@netlify/blobs').getStore({ name: 'hs-files', consistency: 'strong' });
+async function saveFile(dataUrlOrB64, mime) {
   if (!ALLOWED[mime]) throw bad('File type not allowed. Use JPG, PNG, WEBP or PDF.');
   const b64 = String(dataUrlOrB64 || '').replace(/^data:[^,]*,/, '');
   const buf = Buffer.from(b64, 'base64');
   if (!buf.length) throw bad('File is empty or unreadable.');
-  if (buf.length > MAX_FILE) throw bad('File is larger than 8 MB.');
+  if (buf.length > MAX_FILE) throw bad('File is larger than 4 MB.');
   if (!ALLOWED[mime].some(sig => sig.every((b, i) => buf[i] === b))) throw bad('File content does not match its type; it may be corrupted.');
   const id = crypto.randomUUID();
-  fs.writeFileSync(path.join(DATA_DIR, 'files', id), buf);
+  if (process.env.HS_FILES_DIR) { fs.mkdirSync(process.env.HS_FILES_DIR, { recursive: true }); fs.writeFileSync(path.join(process.env.HS_FILES_DIR, id), buf); }
+  else await fileStore().set(id, buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length));
   return { id, size: buf.length };
 }
-function readFile(id) {
+async function readFile(id) {
   if (!/^[0-9a-f-]{36}$/.test(id)) throw notFound();
-  const p = path.join(DATA_DIR, 'files', id); if (!fs.existsSync(p)) throw notFound('File missing');
-  return fs.readFileSync(p);
+  if (process.env.HS_FILES_DIR) {
+    const p = path.join(process.env.HS_FILES_DIR, id); if (!fs.existsSync(p)) throw notFound('File missing');
+    return fs.readFileSync(p);
+  }
+  const data = await fileStore().get(id, { type: 'arrayBuffer' }); if (!data) throw notFound('File missing');
+  return Buffer.from(data);
 }
 
 module.exports = { ApiError, bad, forbidden, notFound, conflict, routes, route, hashPassword, verifyPassword, checkPasswordStrength,
