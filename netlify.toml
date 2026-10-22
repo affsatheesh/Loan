@@ -1,0 +1,4 @@
+[build]
+  # The frontend in public/ is plain static files; there is nothing to compile.
+  command = "echo 'No build step: publishing public/'"
+  publish = "public"
