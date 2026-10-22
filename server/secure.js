@@ -1,10 +1,10 @@
 'use strict';
 // AES-256-GCM field encryption for identity numbers (PAN, voter ID, Aadhaar) stored in the database.
 const crypto = require('node:crypto'); const fs = require('node:fs'); const path = require('node:path');
-const { DATA_DIR } = require('./db');
+const DATA_DIR = process.env.HS_DATA_DIR || path.join(__dirname, '..', 'data');
 function loadKey() {
   if (process.env.HS_ENC_KEY) return crypto.createHash('sha256').update(process.env.HS_ENC_KEY).digest();
-  const p = path.join(DATA_DIR, '.enckey');
+  fs.mkdirSync(DATA_DIR, { recursive: true }); const p = path.join(DATA_DIR, '.enckey');
   if (!fs.existsSync(p)) fs.writeFileSync(p, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
   return Buffer.from(fs.readFileSync(p, 'utf8').trim(), 'hex');
 }

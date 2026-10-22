@@ -3,10 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "description": "HS Small Finance web application (zero dependencies, Node 22+)",
-  "engines": { "node": ">=22.5" },
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
     "start": "node --no-warnings server/server.js",
     "demo": "DEMO_MODE=1 node --no-warnings server/server.js",
     "test": "node --no-warnings --test test/*.test.js"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^11.1.6",
+    "@netlify/database": "^2.0.1",
+    "drizzle-orm": "^1.0.0-beta.22"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.2.17",
+    "@netlify/functions": "^6.0.3",
+    "drizzle-kit": "^1.0.0-beta.22"
   }
 }
