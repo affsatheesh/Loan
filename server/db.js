@@ -1,6 +1,5 @@
 'use strict';
-// Netlify Database (Postgres). The schema lives in db/schema.ts; migrations in netlify/database/migrations are
-// applied by Netlify at deploy time. SQL in the route files keeps SQLite-style `?` placeholders; q converts them.
+// PostgreSQL adapter. Set DATABASE_URL to use a hosted PostgreSQL service such as Neon.
 const { AsyncLocalStorage } = require('node:async_hooks');
 
 // bigint (int8) and numeric (SUM of bigint) come back from Postgres as strings; amounts here are paise and
@@ -11,7 +10,18 @@ const types = { getTypeParser: (oid, format) => PARSERS[oid] || require('pg').ty
 
 let pool = null;
 function getPool() {
-  if (!pool) pool = require('@netlify/database').getDatabase().pool;
+  if (!pool) {
+    if (process.env.DATABASE_URL) {
+      const { Pool } = require('pg');
+      pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 10_000, ssl: { rejectUnauthorized: true } });
+    } else {
+      if (process.env.NETLIFY_DATABASE_URL) {
+        pool = new (require('pg').Pool)({ connectionString: process.env.NETLIFY_DATABASE_URL, max: 5, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 10_000, ssl: { rejectUnauthorized: true } });
+      } else {
+        pool = require('@netlify/database').getDatabase().pool;
+      }
+    }
+  }
   return pool;
 }
 function setPool(p) { pool = p; } // used by tests to run against an in-process Postgres
@@ -26,6 +36,25 @@ function prepare(sql, params) {
   return { text, values, types };
 }
 async function exec(sql, params) { return (txClient.getStore() || getPool()).query(prepare(sql, params)); }
+
+async function initializeDatabase() {
+  const fs = require('node:fs'); const path = require('node:path');
+  const migration = fs.readFileSync(path.join(__dirname, '..', 'netlify/database/migrations/20261022062009_create_finance_tables/migration.sql'), 'utf8');
+  const client = await getPool().connect();
+  try {
+    await client.query('CREATE TABLE IF NOT EXISTS hs_schema_migrations (name text PRIMARY KEY, applied_at bigint NOT NULL)');
+    await client.query('CREATE TABLE IF NOT EXISTS hs_file_objects (id text PRIMARY KEY, data bytea NOT NULL)');
+    const name = '20261022062009_create_finance_tables';
+    const applied = await client.query('SELECT 1 FROM hs_schema_migrations WHERE name=$1', [name]);
+    if (applied.rowCount) return;
+    await client.query('BEGIN');
+    try {
+      for (const statement of migration.split('--> statement-breakpoint').map(s => s.trim()).filter(Boolean)) await client.query(statement);
+      await client.query('INSERT INTO hs_schema_migrations(name,applied_at) VALUES($1,$2)', [name, Date.now()]);
+      await client.query('COMMIT');
+    } catch (error) { await client.query('ROLLBACK'); throw error; }
+  } finally { client.release(); }
+}
 
 const q = {
   all: async (sql, ...p) => (await exec(sql, p)).rows,
@@ -58,4 +87,4 @@ async function notify(userIds, type, title, body, entity, entityId) {
 async function notifyRole(role, type, title, body, entity, entityId) {
   await notify((await q.all("SELECT id FROM users WHERE role=? AND status='ACTIVE'", role)).map(u => u.id), type, title, body, entity, entityId);
 }
-module.exports = { q, tx, nextRef, audit, notify, notifyRole, setPool, getPool, PARSERS };
+module.exports = { q, tx, nextRef, audit, notify, notifyRole, setPool, getPool, initializeDatabase, PARSERS };

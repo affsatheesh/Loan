@@ -3,7 +3,7 @@
 Customer registration, loan applications, Accounts and Admin verification, approval, disbursement,
 repayment collection, overdue tracking, reports. Works on phones (for field employees) and desktops.
 
-Zero dependencies: needs only **Node.js 22.5 or newer**. No `npm install`.
+Requires **Node.js 22.5 or newer**. Install dependencies with `npm install`.
 
 ## Run it
 
@@ -18,35 +18,34 @@ Open http://127.0.0.1:3000. On first start you create the Admin account yourself
 passwords. The Admin then creates Employee, Accounts and Customer logins (each gets a one-time
 temporary password they must change at first login).
 
-## Free demo deployment (Render)
+## Free test deployment (Render + Neon)
 
-The repository includes `render.yaml` for a free Render web service. In Render, choose **New > Blueprint**
-and connect this GitHub repository. The service runs in demo mode, so OTP codes are displayed on screen.
-Before first-time setup, copy the generated `HS_SETUP_TOKEN` from the service's environment settings into
-the setup form. The token prevents a random visitor from claiming the initial Admin account.
+The service uses PostgreSQL. For a free test environment, create a Neon project and database, then copy its
+**pooled** connection string (host includes `-pooler`) into the Render service environment variable `DATABASE_URL`.
+Keep that URL private; never commit it or paste it into chat. On startup, the app applies its PostgreSQL schema
+migration. The repository's `render.yaml` declares this variable as secret/unmanaged so Render prompts for it.
 
-This is only a disposable preview: Render's free web service has an ephemeral filesystem, may sleep when
-idle, and can lose its SQLite database and uploaded files on restart, spin-down, or redeploy. Do not enter
-real customer, identity, banking, or loan data. Real use needs paid durable storage, operational backups,
-live SMS, and a separate production security review.
+The service runs in demo mode, so OTP codes are displayed on screen. During first-time setup, enter the
+`HS_SETUP_TOKEN` shown in Render's environment settings. Neon Free compute suspends after five minutes idle
+and wakes on the next query; this is not a data reset. Its free tier has usage/storage limits and limited recovery
+options. Documents are stored in Postgres too, so they count against the database quota. Back up test data
+yourself. Do not use this free setup for real customer, identity, banking, or lending data.
 
 To let phones on the same Wi-Fi use it: `HOST=0.0.0.0 npm run demo`, then open `http://<computer-ip>:3000`.
 Over a network use HTTPS (put it behind a reverse proxy) and set `HS_SECURE_COOKIE=1`.
 
-## Where data is stored
+## Database and secrets
 
-Everything is in the `data/` folder (SQLite database, uploaded files, encryption key). **Back up that whole
-folder.** Losing `data/.enckey` makes the encrypted ID numbers unreadable. Settings: `PORT`, `HOST`,
-`HS_DATA_DIR`, `HS_ENC_KEY` (optional; overrides the key file), `DEMO_MODE`, `SMS_WEBHOOK_URL`,
-`SMS_WEBHOOK_TOKEN`, `HS_SECURE_COOKIE`.
-
-This is a single-computer setup for testing. When testing is finished the database layer (`server/db.js`
-and the SQL in the route files) is the part to move to a hosted database.
+`DATABASE_URL` selects a hosted PostgreSQL database; when omitted, the Netlify Database adapter is used.
+Uploaded documents are stored in the same PostgreSQL database when `DATABASE_URL` is configured. Keep
+`HS_ENC_KEY` stable: losing or changing it makes encrypted identity fields unreadable. Other settings:
+`PORT`, `HOST`, `HS_ENC_KEY`, `DEMO_MODE`, `HS_SETUP_TOKEN`, `SMS_WEBHOOK_URL`, `SMS_WEBHOOK_TOKEN`,
+`HS_SECURE_COOKIE`. Back up the database and the encryption key together.
 
 ## Tests
 
-`npm test` runs 17 automated tests: business rules (interest, allocation, penalties, state machine,
-eligibility) and a full API walkthrough (application to disbursement to collection, permissions, reversal, reports).
+`npm test` runs automated tests using PGlite (PostgreSQL-compatible): business rules and API walkthroughs,
+including setup, permissions, disbursement, collections, reversals, and reports.
 
 ## What is implemented
 

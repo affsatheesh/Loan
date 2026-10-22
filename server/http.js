@@ -67,6 +67,7 @@ async function saveFile(dataUrlOrB64, mime) {
   if (!ALLOWED[mime].some(sig => sig.every((b, i) => buf[i] === b))) throw bad('File content does not match its type; it may be corrupted.');
   const id = crypto.randomUUID();
   if (process.env.HS_FILES_DIR) { fs.mkdirSync(process.env.HS_FILES_DIR, { recursive: true }); fs.writeFileSync(path.join(process.env.HS_FILES_DIR, id), buf); }
+  else if (process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL) await q.run('INSERT INTO hs_file_objects(id,data) VALUES(?,?)', id, buf);
   else await fileStore().set(id, buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length));
   return { id, size: buf.length };
 }
@@ -75,6 +76,11 @@ async function readFile(id) {
   if (process.env.HS_FILES_DIR) {
     const p = path.join(process.env.HS_FILES_DIR, id); if (!fs.existsSync(p)) throw notFound('File missing');
     return fs.readFileSync(p);
+  }
+  if (process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL) {
+    const row = await q.get('SELECT data FROM hs_file_objects WHERE id=?', id);
+    if (!row) throw notFound('File missing');
+    return Buffer.from(row.data);
   }
   const data = await fileStore().get(id, { type: 'arrayBuffer' }); if (!data) throw notFound('File missing');
   return Buffer.from(data);

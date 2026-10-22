@@ -2,7 +2,7 @@
   "name": "hs-small-finance-web",
   "version": "0.1.0",
   "private": true,
-  "description": "HS Small Finance web application (zero dependencies, Node 22+)",
+  "description": "HS Small Finance web application (Node 22+, PostgreSQL)",
   "engines": {
     "node": ">=22.5"
   },
@@ -14,7 +14,8 @@
   "dependencies": {
     "@netlify/blobs": "^11.1.6",
     "@netlify/database": "^2.0.1",
-    "drizzle-orm": "^1.0.0-beta.22"
+    "drizzle-orm": "^1.0.0-beta.22",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.2.17",

@@ -18,3 +18,5 @@ services:
         generateValue: true
       - key: HS_ENC_KEY
         generateValue: true
+      - key: DATABASE_URL
+        sync: false

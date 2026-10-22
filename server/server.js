@@ -1,6 +1,7 @@
 'use strict';
 const http = require('node:http'); const fs = require('node:fs'); const path = require('node:path');
 const H = require('./http'); require('./routes_core'); require('./routes_ops');
+const { initializeDatabase } = require('./db');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.ico': 'image/x-icon', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
@@ -31,7 +32,7 @@ async function handle(req, res) {
       const m = url.pathname.match(r.re); const params = {}; r.keys.forEach((k, i) => params[k] = decodeURIComponent(m[i + 1]));
       let user = null;
       if (!r.opts.public) {
-        user = H.userFromReq(req); if (!user) throw new H.ApiError(401, 'Your session has expired. Please log in again.');
+        user = await H.userFromReq(req); if (!user) throw new H.ApiError(401, 'Your session has expired. Please log in again.');
         if (!r.opts.roles.includes(user.role)) throw H.forbidden();
         if (user.must_change && !r.opts.allowMustChange && url.pathname !== '/api/me') throw new H.ApiError(403, 'You must change your temporary password first.');
       }
@@ -54,5 +55,6 @@ const server = http.createServer((req, res) => { handle(req, res).catch(e => { c
 module.exports = { server };
 if (require.main === module) {
   const port = Number(process.env.PORT) || 3000, host = process.env.HOST || '127.0.0.1';
-  server.listen(port, host, () => console.log(`HS Small Finance running at http://${host}:${port}${process.env.DEMO_MODE === '1' ? '  [DEMO MODE: OTP codes are shown on screen]' : ''}`));
+  initializeDatabase().then(() => server.listen(port, host, () => console.log(`HS Small Finance running at http://${host}:${port}${process.env.DEMO_MODE === '1' ? '  [DEMO MODE: OTP codes are shown on screen]' : ''}`)))
+    .catch(error => { console.error('Database initialization failed:', error.message); process.exitCode = 1; });
 }

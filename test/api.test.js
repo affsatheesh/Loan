@@ -1,6 +1,17 @@
-process.env.HS_DB = ':memory:'; process.env.HS_DATA_DIR = require('node:os').tmpdir() + '/hs-test-' + process.pid; process.env.DEMO_MODE = '1';
+process.env.DATABASE_URL = 'postgres://pglite:test@localhost/test';
+process.env.HS_FILES_DIR = require('node:os').tmpdir() + '/hs-test-files-' + process.pid; process.env.DEMO_MODE = '1';
 const test = require('node:test'); const assert = require('node:assert/strict');
-const { server } = require('../server/server'); const { q } = require('../server/db'); const D = require('../server/domain');
+const { PGlite } = require('@electric-sql/pglite');
+const { server } = require('../server/server'); const { q, setPool, initializeDatabase } = require('../server/db'); const H = require('../server/http'); const D = require('../server/domain');
+const pglite = new PGlite();
+const query = async (text, values) => {
+  if (typeof text === 'object') { values = text.values; text = text.text; }
+  const result = await pglite.query(text, values);
+  const numericFields = new Set(result.fields.filter(f => f.dataTypeID === 20 || f.dataTypeID === 1700).map(f => f.name));
+  const rows = result.rows.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, numericFields.has(key) && value != null ? Number(value) : value])));
+  return { ...result, rows, rowCount: result.affectedRows ?? result.rows.length };
+};
+setPool({ query: config => query(config.text, config.values), connect: async () => ({ query, release() {} }) });
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 let base; const jars = {};
 async function api(who, method, path, body, headers = {}) {
@@ -16,8 +27,8 @@ async function makeUser(role, username, extra = {}) {
   await ok(username, 'POST', '/api/change-password', { current: u.temporaryPassword, password: 'Passw0rd!' + username });
   await ok(username, 'POST', '/api/login', { username, password: 'Passw0rd!' + username }); return u;
 }
-test.before(async () => { await new Promise(r => server.listen(0, '127.0.0.1', r)); base = 'http://127.0.0.1:' + server.address().port; });
-test.after(() => server.close());
+test.before(async () => { await initializeDatabase(); await new Promise(r => server.listen(0, '127.0.0.1', r)); base = 'http://127.0.0.1:' + server.address().port; });
+test.after(async () => { await new Promise(r => server.close(r)); await pglite.close(); });
 
 const form = { name: 'Lakshmi Devi', dob: '1990-05-12', mobile: '9876543210', address: '12 Gandhi Street, Madurai, Tamil Nadu', voter: 'ABC1234567', occupation: 'Tailor', adults: 2, children: 2, income: 2500000, amount: 2000000,
   bank: { holder: 'Lakshmi Devi', bankName: 'SBI', account: '123456789012', confirmAccount: '123456789012', ifsc: 'SBIN0001234' } };
@@ -46,6 +57,15 @@ test('setup, login, role protection, config', async () => {
   assert.equal((await ok('emp1', 'GET', '/api/products')).products.length, 1);
 });
 
+test('Postgres document storage survives without a local files directory', async () => {
+  const filesDir = process.env.HS_FILES_DIR;
+  delete process.env.HS_FILES_DIR;
+  try {
+    const file = await H.saveFile(PNG, 'image/png');
+    assert.deepEqual(await H.readFile(file.id), Buffer.from(PNG, 'base64'));
+  } finally { process.env.HS_FILES_DIR = filesDir; }
+});
+
 test('application: validation, OTP, documents, submit', async () => {
   appId = (await ok('emp1', 'POST', '/api/applications')).id;
   const est = await ok('emp1', 'POST', '/api/estimate', { productId, amount: 2000000 }); assert.equal(est.provisional, true); assert.equal(est.processingFee, 160000);
@@ -66,7 +86,7 @@ test('application: validation, OTP, documents, submit', async () => {
   assert.equal((await api('emp1', 'POST', `/api/applications/${appId}/submit`)).status, 409, 'no duplicate submit');
   const det = await ok('emp1', 'GET', `/api/applications/${appId}`); assert.equal(det.application.status, 'SUBMITTED_TO_ACCOUNTS'); assert.equal(det.customer.voter, 'XXXXXX4567', 'masked for employee');
   assert.equal((await ok('admin', 'GET', `/api/applications/${appId}`)).customer.voter, 'ABC1234567');
-  assert.match(q.get('SELECT voter FROM customers').voter, /^enc1:/, 'encrypted at rest');
+  assert.match((await q.get('SELECT voter FROM customers')).voter, /^enc1:/, 'encrypted at rest');
   assert.equal((await ok('acc1', 'GET', '/api/notifications')).notifications.length, 1);
 });
 
@@ -125,10 +145,10 @@ test('payments: idempotency, allocation, overpay, reversal, closure', async () =
 });
 
 test('overdue penalties: once only, waiver, ageing, dashboard, reports', async () => {
-  q.run('UPDATE instalments SET due_date=? WHERE loan_id=? AND number=1', D.addDays(new Date().toISOString().slice(0, 10), -10), loanId);
+  await q.run('UPDATE instalments SET due_date=? WHERE loan_id=? AND number=1', D.addDays(new Date().toISOString().slice(0, 10), -10), loanId);
   const a = await ok('emp1', 'GET', '/api/overdue'); assert.equal(a.rows.length, 1); assert.equal(a.rows[0].penaltyOutstanding, 20000);
   const b = await ok('emp1', 'GET', '/api/overdue'); assert.equal(b.rows[0].penaltyOutstanding, 20000, 'recalculation is idempotent');
-  q.run('UPDATE instalments SET due_date=? WHERE loan_id=? AND number=1', D.addDays(new Date().toISOString().slice(0, 10), -2), loanId);
+  await q.run('UPDATE instalments SET due_date=? WHERE loan_id=? AND number=1', D.addDays(new Date().toISOString().slice(0, 10), -2), loanId);
   const dash = await ok('emp1', 'GET', '/api/dashboard'); assert.equal(dash.metrics.overdueCustomers, 1);
   const inst = (await ok('admin', 'GET', `/api/loans/${loanId}`)).instalments[0];
   assert.equal((await api('emp1', 'POST', `/api/instalments/${inst.id}/waive-penalty`, { reason: 'x' })).status, 403);
@@ -146,11 +166,11 @@ test('overdue penalties: once only, waiver, ageing, dashboard, reports', async (
 test('rejections are final; deactivated users lose access; customer isolation', async () => {
   const id2 = (await ok('emp2', 'POST', '/api/applications')).id; await ok('emp2', 'DELETE', `/api/applications/${id2}`);
   assert.equal((await api('emp2', 'POST', `/api/applications/${id2}/cancel`, { reason: 'x' })).status, 409);
-  const custId = q.get('SELECT id FROM customers').id; await makeUser('CUSTOMER', 'cust1', { customerId: custId });
+  const custId = (await q.get('SELECT id FROM customers')).id; await makeUser('CUSTOMER', 'cust1', { customerId: custId });
   const cl = await ok('cust1', 'GET', '/api/loans'); assert.equal(cl.loans.length, 1);
   assert.equal((await api('cust1', 'GET', '/api/users')).status, 403); assert.equal((await api('cust1', 'GET', `/api/customers/${custId}`)).status, 403);
   const cd = await ok('cust1', 'GET', `/api/applications/${appId}`); assert.equal(cd.documents, undefined); assert.equal(cd.application.employeeName, undefined);
-  const emp2 = q.get(`SELECT id FROM users WHERE username='emp2'`).id; await ok('admin', 'PUT', `/api/users/${emp2}`, { status: 'INACTIVE' });
+  const emp2 = (await q.get(`SELECT id FROM users WHERE username='emp2'`)).id; await ok('admin', 'PUT', `/api/users/${emp2}`, { status: 'INACTIVE' });
   assert.equal((await api('emp2', 'GET', '/api/me')).data.user, null, 'deactivated session ends immediately');
   assert.equal((await api('x2', 'POST', '/api/login', { username: 'emp2', password: 'Passw0rd!emp2' })).status, 403);
   await ok('cust1', 'POST', '/api/logout'); assert.equal((await api('cust1', 'GET', '/api/me')).data.user, null); assert.equal((await api('cust1', 'GET', '/api/loans')).status, 401);
